@@ -1,73 +1,71 @@
 // src/tasks/mineTokens.ts
-import puppeteer, { Page } from "puppeteer";
 import { ethers } from "ethers";
+import nodemailer from "nodemailer";
 import ABI from "../abis/abiattorneycoin.json";
 
-
-const FAUCET_URL = "https://faucets.chain.link/";
-
-const POL_CARD_ID = "faucet_card_polygon-amoy_native";
-const LINK_CARD_ID = "faucet_card_polygon-amoy_link";
+// Endereços e configs
+const ATC_ADDRESS = process.env.PAYMENT_TOKEN_ADDRESS!;
+const PRIVATE_KEY = process.env.SECRET!;
+const RPC_URL = process.env.INFURA_URL!;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL!;
+const ADMIN_EMAIL_PASSWORD = process.env.ADMIN_EMAIL_PASSWORD!;
 
 /**
- * Lógica comum para minerar tokens na página da Chainlink Faucet
+ * Função utilitária para enviar alerta por e-mail
  */
-async function mineFromFaucet(walletAddress: string, cardTestId: string, tokenName: string) {
+async function notifyAdminByEmail(tokenName: string, walletAddress: string) {
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: ADMIN_EMAIL,
+      pass: ADMIN_EMAIL_PASSWORD,
+    },
+  });
+
+  const mailOptions = {
+    from: `"Sistema de Debêntures" <${ADMIN_EMAIL}>`,
+    to: ADMIN_EMAIL,
+    subject: `⚠️ Requisição manual: Carregar ${tokenName} para ${walletAddress}`,
+    html: `
+      <p>Foi detectada necessidade de carregar <strong>${tokenName}</strong> para a carteira <code>${walletAddress}</code>.</p>
+      <p>⏳ Por favor, providencie o envio em até <strong>48 horas</strong>.</p>
+    `,
+  };
+
   try {
-    console.log(`🚰 Minerando ${tokenName} para ${walletAddress}...`);
-
-    const browser = await puppeteer.launch({ headless: true });
-    const page: Page = await browser.newPage();
-    await page.goto(FAUCET_URL, { waitUntil: "networkidle0" });
-
-    // Clica no card específico (POL ou LINK)
-    await page.waitForSelector(`[data-testid="${cardTestId}"]`);
-    await page.click(`[data-testid="${cardTestId}"]`);
-
-    // Preenche o endereço da carteira
-    await page.waitForSelector('input[type="text"]');
-    await page.type('input[type="text"]', walletAddress, { delay: 100 });
-
-    // Clica no botão "Send request"
-    await page.waitForSelector('[data-testid="request_button"]');
-    await page.click('[data-testid="request_button"]');
-
-    // Aguarda 8 segundos
-    await new Promise((resolve) => setTimeout(resolve, 8000));
-    await browser.close();
-
-    console.log(`✅ Requisição de ${tokenName} enviada com sucesso.`);
-  } catch (err) {
-    console.error(`❌ Erro ao minerar ${tokenName}:`, err);
+    await transporter.sendMail(mailOptions);
+    console.log(`📬 Alerta de saldo baixo enviado para o administrador (${tokenName})`);
+  } catch (error) {
+    console.error("❌ Erro ao enviar e-mail de alerta:", error);
   }
 }
 
 /**
- * Mina POL (token nativo da rede Amoy)
+ * Em vez de minerar POL, envia alerta por e-mail
  */
 export async function minePOL(walletAddress: string) {
-  await mineFromFaucet(walletAddress, POL_CARD_ID, "POL");
+  console.log("🚫 Minerar POL via faucet desativado.");
+  await notifyAdminByEmail("POL (nativo)", walletAddress);
 }
 
 /**
- * Mina LINK (token ERC20 na rede Amoy)
+ * Em vez de minerar LINK, envia alerta por e-mail
  */
 export async function mineLINK(walletAddress: string) {
-  await mineFromFaucet(walletAddress, LINK_CARD_ID, "LINK");
+  console.log("🚫 Minerar LINK via faucet desativado.");
+  await notifyAdminByEmail("LINK (ERC20)", walletAddress);
 }
 
-const ATC_ADDRESS = `${process.env.PAYMENT_TOKEN_ADDRESS}`;
-const PRIVATE_KEY = process.env.SECRET!;
-const RPC_URL = process.env.INFURA_URL!;
-
+/**
+ * Mint manual do token ATC via contrato
+ */
 export async function mintATC() {
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const signer = new ethers.Wallet(PRIVATE_KEY, provider);
-
   const contract = new ethers.Contract(ATC_ADDRESS, ABI, signer);
 
-  const tx = await contract.mint(); // ou contract.mint(to, amount) se necessário
+  const tx = await contract.mint(); // ou mint(to, amount)
   await tx.wait();
 
-  console.log("ATC mintado com sucesso!");
+  console.log("✅ ATC mintado com sucesso!");
 }
