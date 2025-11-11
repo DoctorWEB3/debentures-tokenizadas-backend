@@ -1,5 +1,5 @@
 .env
 
-abi.json
+src/abi.json
 
 node_modules

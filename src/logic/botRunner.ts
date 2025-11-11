@@ -1,5 +1,8 @@
 // src/logic/botRunner.ts
-import { ethers, Wallet } from "ethers";
+import * as dotenv from "dotenv";
+dotenv.config();
+
+import { Wallet, JsonRpcProvider, ethers } from "ethers";
 import { minePOL, mineLINK, mintATC } from "../tasks/mineTokens";
 import { updateIPCA } from "../tasks/updateIPCA";
 import { checkAndAmortize } from "../tasks/checkAndAmortize";
@@ -9,9 +12,18 @@ import { checkSubscriptionLoaded } from "./checkSubscription";
 
 export async function botRunner() {
   const privateKey = process.env.SECRET!;
-  const wallet = new Wallet(privateKey);
-  const provider = wallet.provider!;
+  const rpcUrl = process.env.INFURA_URL!;
+
+  if (!privateKey || !rpcUrl) {
+    throw new Error("❌ SECRET ou AMOY_RPC_URL não definidos no .env");
+  }
+
+  const provider = new JsonRpcProvider(rpcUrl);
+  const wallet = new Wallet(privateKey, provider);
   const address = wallet.address;
+
+  console.log("🔐 PRIVATE KEY:", privateKey);
+  console.log("🌐 Wallet address:", address);
 
   const linkBalance = await getLinkBalance(address, provider);
   const nativeBalance = await getPolBalance(address, provider);
@@ -21,23 +33,20 @@ export async function botRunner() {
 
   console.log("Iniciando verificação passo a passo...");
 
-  // ✅ Notifica se passou 24h e está sem POL
   const oneDayPast = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   if (now.getTime() >= oneDayPast.getTime() && nativeBalance < ethers.parseEther("1")) {
-    console.log("Já se passaram 24h e POL está baixo");
+    console.log("⚠️ Já se passaram 24h e POL está baixo");
     await minePOL(address);
     return;
   }
 
-  // ✅ Notifica se passou 15 dias e está sem LINK
   const fifteenDaysPast = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
   if (now.getTime() >= fifteenDaysPast.getTime() && linkBalance < ethers.parseEther("5")) {
-    console.log("Já se passaram 15 dias e LINK está baixo");
+    console.log("⚠️ Já se passaram 15 dias e LINK está baixo");
     await mineLINK(address);
     return;
   }
 
-  // ✅ Se for dia 1, verificar e carregar subscrições
   if (isFirstDay) {
     const subscriptionId434 = Number(process.env.ACCUMULATED_SUBSCRIPTION_ID!);
     const subscriptionId438 = Number(process.env.MONTHLY_SUBSCRIPTION_ID!);
@@ -81,7 +90,6 @@ export async function botRunner() {
     await updateIPCA(privateKey);
   }
 
-  // ✅ Verifica se tem ATC, senão faz mint
   const tokenOK = await getAttorneycoinBalance(address, provider);
   if (!tokenOK) {
     if (nativeBalance < ethers.parseEther("1")) {
@@ -95,11 +103,10 @@ export async function botRunner() {
     return;
   }
 
-  // ✅ Amortização
   console.log("✅ Efetuando amortizações...");
   await checkAndAmortize(privateKey);
 
-  console.log("Ciclo concluído.");
+  console.log("✅ Ciclo concluído.");
 }
 
 setInterval(botRunner, 8000);
